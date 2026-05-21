@@ -4,7 +4,7 @@
  * Author: Soham Paik
  * Purpose: This program utilizes the TCP protocol and the C POSIX Threading
  *          library to receive messages from users and broadcast them to all other
- *          users.
+ *          users. It serves as a server for hosting a messaging server.
  */
 #include <arpa/inet.h>
 #include <errno.h>

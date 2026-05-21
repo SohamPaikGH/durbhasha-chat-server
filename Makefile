@@ -4,7 +4,7 @@ CFLAGS=-g -Wall -Werror -Wextra
 SERVER=dbs-server
 CLIENT=dbs-client
 
-MSG="Commit"
+MSG?="Commit"
 
 all: $(SERVER) $(CLIENT)
 
@@ -19,6 +19,6 @@ clean:
 
 commit:
 	git add dbs-client.c dbs-server.c Makefile .gitignore
-	git commit -m $(MSG)
+	git commit -m "$(MSG)"
 
 .PHONY: all clean commit
