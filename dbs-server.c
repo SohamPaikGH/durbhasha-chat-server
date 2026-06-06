@@ -43,6 +43,14 @@ void handle_client(int, const char *);
 
 void broadcast(const char *, const char *);
 
+void help();
+
+void help() {
+  fprintf(stdout, "Durbhas - TCP Communications Server\n"
+          "\nUsage: dbs-server [arguments]\n"
+          "\nArguments:\n\t-ts\t\tThread pool mode\n\t--thread-pool\t\tThread pool mode\n");
+}
+
 void *get_in_addr(struct sockaddr *sa) {
   if (sa->sa_family == AF_INET)
     return &(((struct sockaddr_in *) sa)->sin_addr);
@@ -147,7 +155,7 @@ void *client_thread(void *arg) {
   return NULL;
 }
 
-int main() {
+int main(int argc, char **argv) {
   memset(&client_fds, -1, sizeof(client_fds));
 
   int sockfd, yes = 1;
@@ -208,36 +216,46 @@ int main() {
     exit(3);
   }
 
-  while (1) {
-    int clientfd = accept(sockfd, (struct sockaddr *) &client_addr, &addr_size);
-    if (clientfd == -1) {
-      perror("accept");
-      continue;
+  if (argc > 1) {
+    if (!strcmp("--thread-pool", argv[1]) || !strcmp("-tp", argv[1])) {
+      fprintf(stdout, "Server running in threading pool mode...\n");
     }
-
-    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *) &client_addr), s, sizeof(s));
-    printf("Server got connection from %s\n", s);
-    fflush(stdout);
-
-    pthread_t thread;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-    client_info *arg = (client_info *) malloc(sizeof(client_info));
-    arg->fd = clientfd;
-    arg->s = strdup(s);
-    int ret = pthread_create(&thread, &attr, &client_thread, arg);
-    if (ret != 0) {
-      fprintf(stderr, "Client thread could not be created.\n");
-      continue;
+    else {
+      help();
     }
-
   }
+  else {
+    while (1) {
+      int clientfd = accept(sockfd, (struct sockaddr *) &client_addr, &addr_size);
+      if (clientfd == -1) {
+        perror("accept");
+        continue;
+      }
 
-  if (pthread_mutex_destroy(&mutex_lock)) {
-    fprintf(stderr, "Mutex lock could not be destroyed.\n");
-    exit(3);
+      inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *) &client_addr), s, sizeof(s));
+      printf("Server got connection from %s\n", s);
+      fflush(stdout);
+
+      pthread_t thread;
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+      client_info *arg = (client_info *) malloc(sizeof(client_info));
+      arg->fd = clientfd;
+      arg->s = strdup(s);
+      int ret = pthread_create(&thread, &attr, &client_thread, arg);
+      if (ret != 0) {
+        fprintf(stderr, "Client thread could not be created.\n");
+        continue;
+      }
+
+    }
+
+    if (pthread_mutex_destroy(&mutex_lock)) {
+      fprintf(stderr, "Mutex lock could not be destroyed.\n");
+      exit(3);
+    }
   }
 
   return 0;

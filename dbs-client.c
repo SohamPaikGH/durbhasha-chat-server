@@ -47,12 +47,10 @@ void *handle_send_thread(void *arg) {
 
     int bytes = 0;
     if ((bytes = send(sockfd, msg, strlen(msg), 0)) < 0) {
-      //printf("Bytes received: %d\n", bytes);
       if (quit_flag) break;
       perror("send");
       break;
     }
-   // printf("Bytes received: %d\n", bytes);
 
     if (!strncmp(msg, "quit\n", 5)) break;
 
