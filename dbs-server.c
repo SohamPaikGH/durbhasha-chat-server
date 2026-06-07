@@ -28,7 +28,7 @@ pthread_mutex_t mutex_lock;
 
 typedef struct client_info {
   int fd;
-  char *s;
+  char *name;
 } client_info;
 
 int client_fds[BACKLOG];
@@ -142,16 +142,53 @@ void *client_thread(void *arg) {
     send(c->fd, "Server full.", 12, 0);
     shutdown(c->fd, SHUT_RDWR);
     close(c->fd);
-    free(c->s);
+    free(c->name);
     free(c);
     return NULL;
   }
-  handle_client(c->fd, c->s);
+  handle_client(c->fd, c->name);
   shutdown(c->fd, SHUT_RDWR);
   close(c->fd);
   client_remove(idx);
-  free(c->s);
+  free(c->name);
   free(c);
+  return NULL;
+}
+
+void *pool_thread() {
+  /*
+  struct pollfd *fds = (struct pollfd) malloc(sizeof(pollfd) * 100);
+  int nfds = 100;
+
+  while (1) {
+    struct addrinfo hints, *res, *res0;
+    struct sockaddr_storage client_addr;
+    socklen_t addr_size = sizeof(client_addr);
+
+    int sockfd = accept(sockfd, client_addr, addr_size);
+    if (sockfd == -1) {
+      perror("accept");
+      free(fds);
+      return NULL;
+    }
+
+    struct pollfd new_fd;
+    new_fd.fd = sockfd;
+    new_fd.events = POLLIN | POLLOUT | POLLERR;
+    new_fd.revents = POLLIN;
+
+    int poll_out = poll(fds, nfds, 10000);
+    if (poll_out < 0) {
+      continue;
+    }
+    else if (poll_out) {
+      // Find the fd that sent the input and send its output
+    }
+  }
+
+  free(fds);
+  */
+  puts("This statement is a placeholder");
   return NULL;
 }
 
@@ -219,9 +256,49 @@ int main(int argc, char **argv) {
   if (argc > 1) {
     if (!strcmp("--thread-pool", argv[1]) || !strcmp("-tp", argv[1])) {
       fprintf(stdout, "Server running in threading pool mode...\n");
+
+      pthread_t threads[5];
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+      /* Steps for threads
+        * 1. Create five threads
+        * 2. Each thread accepts a certain number of connections
+        * 3. Each thread adds each accepted fd to a list of fds
+        * 4. Each thread uses I/O multiplexing to handle input from connections
+        * 5. Whenever a client sends input, the server sends their input to all clients
+        *    (including the original sender)
+       */
+      if (pthread_mutex_init(&mutex_lock, NULL)) {
+        fprintf(stderr, "Could not create mutex lock.\n");
+        exit(3);
+      }
+
+      for (int i = 0; i < 5; i++) {
+        if (pthread_create(&threads[i], &attr, &pool_thread, NULL) != 0) {
+          fprintf(stderr, "Pool thread could not be created.\n");
+          continue;
+        }
+      }
+
+      if (pthread_mutex_destroy(&mutex_lock) != 0) {
+        fprintf(stderr, "Mutex lock could not be destroyed.");
+        exit(3);
+      }
+
     }
     else {
-      help();
+
+      for (int i = 1; i < argc; i++) {
+        fprintf(stderr, "dbs-server: error: no such argument \'%s\'\n", argv[i]);
+      }
+
+      if (pthread_mutex_destroy(&mutex_lock)) {
+        fprintf(stderr, "Mutex lock could not be destroyed.\n");
+        exit(3);
+      }
+      close(sockfd);
     }
   }
   else {
@@ -243,7 +320,7 @@ int main(int argc, char **argv) {
 
       client_info *arg = (client_info *) malloc(sizeof(client_info));
       arg->fd = clientfd;
-      arg->s = strdup(s);
+      arg->name = strdup(s);
       int ret = pthread_create(&thread, &attr, &client_thread, arg);
       if (ret != 0) {
         fprintf(stderr, "Client thread could not be created.\n");
