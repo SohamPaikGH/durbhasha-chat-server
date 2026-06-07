@@ -1,5 +1,5 @@
 /*
- * dbs-server.c: Durbhas Communications Server
+ * dbs-server.c: Durbhasha Communications Server
  *
  * Author: Soham Paik
  * Purpose: This program utilizes the TCP protocol and the C POSIX Threading
@@ -46,7 +46,7 @@ void broadcast(const char *, const char *);
 void help();
 
 void help() {
-  fprintf(stdout, "Durbhas - TCP Communications Server\n"
+  fprintf(stdout, "Durbhasha - TCP Communications Server\n"
           "\nUsage: dbs-server [arguments]\n"
           "\nArguments:\n\t-ts\t\tThread pool mode\n\t--thread-pool\t\tThread pool mode\n");
 }

@@ -1,5 +1,5 @@
 /*
- * dbs-client.c: Durbhas Communications Client
+ * dbs-client.c: Durbhasha Communications Client
  *
  * Author: Soham Paik
  * Description: This client uses the TCP protocol to connect to a running
