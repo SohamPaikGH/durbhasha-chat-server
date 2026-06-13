@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,15 +24,19 @@
 #define PORT "50000"
 #define BACKLOG 2
 #define BUF_SIZE 1024
+#define POOL_SIZE 5
+#define TIMEOUT 1000
 
 pthread_mutex_t mutex_lock;
 
-typedef struct client_info {
-  int fd;
+typedef struct client_info_default_mode {
   char *name;
-} client_info;
+  int fd;
+} client_info_default_mode;
 
 int client_fds[BACKLOG];
+
+/* ----------- FUNCTION PROTOTYPES ----------- */
 
 int client_add(int);
 
@@ -45,6 +50,99 @@ void broadcast(const char *, const char *);
 
 void help();
 
+/* ----------- POOL MODE QUEUE ----------- */
+
+typedef struct {
+  int fds[BACKLOG];
+  int head, tail, count;
+  pthread_mutex_t lock;
+  pthread_cond_t cond;
+} FdQueue;
+
+typedef struct {
+  int id;
+  FdQueue queue;
+} Worker;
+
+Worker workers[POOL_SIZE];  
+
+/* --- SHARED BROADCAST FOR POOL MODE ----- */
+
+int pool_clients[POOL_SIZE * BACKLOG];
+pthread_mutex_t pool_clients_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int pool_client_add(int fd) {
+  pthread_mutex_lock(&pool_clients_lock);
+  int slot = -1;
+  for (int i = 0; i < POOL_SIZE * BACKLOG; i++) {
+    if (pool_clients[i] == -1) {
+      pool_clients[i] = fd;
+      slot = i;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&pool_clients_lock);
+
+  return slot;
+}
+
+void pool_client_remove(int fd) {
+  pthread_mutex_lock(&pool_clients_lock);
+  for (int i = 0; i < POOL_SIZE * BACKLOG; i++) {
+    if (pool_clients[i] == fd) {
+      pool_clients[i] = -1;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&pool_clients_lock);
+}
+
+void pool_broadcast(int sender_fd, const char *sender_name, const char *msg) {
+  char buf[BUF_SIZE];
+  snprintf(buf, sizeof(buf), "[%s] says '%s'\n", sender_name, msg);
+
+  pthread_mutex_lock(&pool_clients_lock);
+  for (int i = 0; i < POOL_SIZE * BACKLOG; i++) {
+    if (pool_clients[i] != sender_fd) {
+      send(pool_clients[i], buf, strlen(buf), MSG_DONTWAIT);
+    }
+  }
+  pthread_mutex_unlock(&pool_clients_lock);
+}
+
+/* ----------- QUEUE HELPERS -------------- */
+
+void queue_init(FdQueue *q) {
+  memset(q->fds, -1, sizeof(q->fds));
+  q->head = q->tail = q->count = 0;
+  pthread_mutex_init(&q->lock, NULL);
+  pthread_cond_init(&q->cond, NULL);
+}
+
+void queue_push(FdQueue *q, int fd) {
+  pthread_mutex_lock(&q->lock);
+  q->fds[q->tail] = fd;
+  q->tail = (q->tail + 1) % BACKLOG;
+  q->count++;
+  pthread_cond_signal(&q->cond);
+  pthread_mutex_unlock(&q->lock);
+}
+
+int queue_pop(FdQueue *q) {
+  pthread_mutex_lock(&q->lock);
+  if (q->count == 0) {
+    pthread_mutex_unlock(&q->lock);
+    return -1;
+  }
+  int fd = q->fds[q->head];
+  q->head = (q->head + 1) % BACKLOG;
+  q->count--;
+  pthread_mutex_unlock(&q->lock);
+  return fd;
+}
+
+/* ----------- HELPER FUNCTIONS ----------- */
+
 void help() {
   fprintf(stdout, "Durbhasha - TCP Communications Server\n"
           "\nUsage: dbs-server [arguments]\n"
@@ -57,6 +155,8 @@ void *get_in_addr(struct sockaddr *sa) {
 
   return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
+
+/* ----------- DEFAULT MODE ----------- */
 
 void broadcast(const char *sender, const char *msg) {
   char buf[BUF_SIZE];
@@ -135,7 +235,7 @@ void client_remove(int idx) {
 }
 
 void *client_thread(void *arg) {
-  client_info *c = (client_info *) arg;
+  client_info_default_mode *c = (client_info_default_mode *) arg;
   int idx = client_add(c->fd);
   if (idx == -1) {
     fprintf(stdout, "Server full.\n");
@@ -155,51 +255,86 @@ void *client_thread(void *arg) {
   return NULL;
 }
 
-void *pool_thread() {
-  /*
-  struct pollfd *fds = (struct pollfd) malloc(sizeof(pollfd) * 100);
-  int nfds = 100;
+/* ----------- POOL MODE: WORKER THREAD ----------- */
+
+void *pool_thread(void *arg) {
+  //client_info_pool_mode *c = (client_info_pool_mode *) arg;
+  int maxfds = 100;
+  struct pollfd *fds = (struct pollfd *) malloc(sizeof(struct pollfd) * maxfds);
+  char **names = (char **) malloc(INET6_ADDRSTRLEN * maxfds);
+  int nfds = 0, ret;
+
+  int sockfd = -1;
+  struct sockaddr_storage client_addr;
+  socklen_t addr_size = sizeof(client_addr);
+  char s[INET6_ADDRSTRLEN] = {0};
+
+  sockfd = (int) (intptr_t) arg;
+  printf("sockfd: %d\n", sockfd);
 
   while (1) {
-    struct addrinfo hints, *res, *res0;
-    struct sockaddr_storage client_addr;
-    socklen_t addr_size = sizeof(client_addr);
-
-    int sockfd = accept(sockfd, client_addr, addr_size);
-    if (sockfd == -1) {
+    int clientfd = accept(sockfd, (struct sockaddr *) &client_addr, &addr_size);
+    if (clientfd == -1) {
       perror("accept");
-      free(fds);
-      return NULL;
-    }
-
-    struct pollfd new_fd;
-    new_fd.fd = sockfd;
-    new_fd.events = POLLIN | POLLOUT | POLLERR;
-    new_fd.revents = POLLIN;
-
-    int poll_out = poll(fds, nfds, 10000);
-    if (poll_out < 0) {
       continue;
     }
-    else if (poll_out) {
-      // Find the fd that sent the input and send its output
+
+    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *) &client_addr), s, sizeof(s));
+    printf("Server got connection from %s\n", s);
+    fflush(stdout);
+
+    if (nfds == maxfds) {
+      maxfds = maxfds * 2;
+      fds = realloc(fds, sizeof(struct pollfd) * maxfds);
+      names = realloc(names, INET6_ADDRSTRLEN * maxfds * 2);
+    }
+
+    struct pollfd new_entry = {clientfd, POLLIN, 0};
+    fds[nfds] = new_entry;
+    names[nfds] = strdup(s);
+    nfds++;
+
+    ret = poll(fds, nfds, TIMEOUT);
+    if (ret < 0) {
+      perror("poll");
+      exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < nfds; i++) {
+      if (fds[i].revents & POLLIN) {
+        handle_client(fds[i].fd, names[i]);
+      }
     }
   }
 
+  for (int i = 0; i < nfds; i++) {
+    shutdown(fds[i].fd, SHUT_RDWR);
+    free(names[i]);
+  }
+
+  free(names);
   free(fds);
-  */
-  puts("This statement is a placeholder");
   return NULL;
 }
 
+/* ----------- MAIN ----------- */
+
 int main(int argc, char **argv) {
   memset(&client_fds, -1, sizeof(client_fds));
+  memset(&pool_clients, -1, sizeof(pool_clients));
+
+  struct sigaction sa_pipe;
+  memset(&sa_pipe, 0, sizeof(sa_pipe));
+  sa_pipe.sa_handler = SIG_IGN;
+  sigemptyset(&sa_pipe.sa_mask);
+  sa_pipe.sa_flags = 0;
+  if (sigaction(SIGPIPE, &sa_pipe, NULL) == -1) {
+    perror("sigaction");
+    exit(1);
+  }
 
   int sockfd, yes = 1;
   struct addrinfo hints, *res, *res0;
-  struct sockaddr_storage client_addr;
-  socklen_t addr_size = sizeof(client_addr);
-  char s[INET6_ADDRSTRLEN];
   
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
@@ -254,7 +389,7 @@ int main(int argc, char **argv) {
   }
 
   if (argc > 1) {
-    if (!strcmp("--thread-pool", argv[1]) || !strcmp("-tp", argv[1])) {
+    if (!strcmp("--thread-pool", argv[1]) || !strcmp("-p", argv[1])) {
       fprintf(stdout, "Server running in threading pool mode...\n");
 
       pthread_t threads[5];
@@ -276,7 +411,7 @@ int main(int argc, char **argv) {
       }
 
       for (int i = 0; i < 5; i++) {
-        if (pthread_create(&threads[i], &attr, &pool_thread, NULL) != 0) {
+        if (pthread_create(&threads[i], &attr, &pool_thread, (void *) (intptr_t) sockfd) != 0) {
           fprintf(stderr, "Pool thread could not be created.\n");
           continue;
         }
@@ -289,7 +424,6 @@ int main(int argc, char **argv) {
 
     }
     else {
-
       for (int i = 1; i < argc; i++) {
         fprintf(stderr, "dbs-server: error: no such argument \'%s\'\n", argv[i]);
       }
@@ -302,6 +436,10 @@ int main(int argc, char **argv) {
     }
   }
   else {
+    struct sockaddr_storage client_addr;
+    socklen_t addr_size = sizeof(client_addr);
+    char s[INET6_ADDRSTRLEN];
+
     while (1) {
       int clientfd = accept(sockfd, (struct sockaddr *) &client_addr, &addr_size);
       if (clientfd == -1) {
@@ -318,7 +456,7 @@ int main(int argc, char **argv) {
       pthread_attr_init(&attr);
       pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-      client_info *arg = (client_info *) malloc(sizeof(client_info));
+      client_info_default_mode *arg = (client_info_default_mode *) malloc(sizeof(client_info_default_mode));
       arg->fd = clientfd;
       arg->name = strdup(s);
       int ret = pthread_create(&thread, &attr, &client_thread, arg);
