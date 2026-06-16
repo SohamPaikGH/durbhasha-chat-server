@@ -98,15 +98,13 @@ void pool_client_remove(int fd) {
   pthread_mutex_unlock(&pool_clients_lock);
 }
 
-void pool_broadcast(/*int sender_fd, */const char *sender_name, const char *msg) {
+void pool_broadcast(const char *sender_name, const char *msg) {
   char buf[BUF_SIZE];
   snprintf(buf, sizeof(buf), "[%s] says '%s'\n", sender_name, msg);
 
   pthread_mutex_lock(&pool_clients_lock);
   for (int i = 0; i < POOL_SIZE * BACKLOG; i++) {
-    //if (pool_clients[i] != sender_fd) {
-      send(pool_clients[i], buf, strlen(buf), MSG_DONTWAIT);
-    //}
+    send(pool_clients[i], buf, strlen(buf), MSG_DONTWAIT);
   }
   pthread_mutex_unlock(&pool_clients_lock);
 }
@@ -194,7 +192,7 @@ void handle_client(int clientfd, const char *s) {
       break;
     }
     else if (bytes == 0) {
-      printf("Client disconnected.\n");
+      fprintf(stdout, "Client %s disconnected.\n", s);
       fflush(stdout);
       break;
     }
@@ -203,7 +201,7 @@ void handle_client(int clientfd, const char *s) {
     if (!strncmp(buf, "quit", 4)) {
       send(clientfd, "Goodbye!\n", 9, 0);
       send(clientfd, "\n", 1, 0);
-      printf("Client disconnected.\n");
+      printf("Client %s disconnected.\n", s);
       fflush(stdout);
       break;
     }
@@ -353,7 +351,7 @@ void *pool_thread(void *arg) {
 
       if (!strncmp(buf, "quit", 4)) {
         send(fds[i].fd, "Goodbye!\n", 9, 0);
-        printf("Worker %d: '%s' quit\n", w->id, names[i]);
+        printf("Worker %d: [%s] quit\n", w->id, names[i]);
 
         pool_client_remove(fds[i].fd);
         shutdown(fds[i].fd, SHUT_RDWR);
@@ -371,7 +369,8 @@ void *pool_thread(void *arg) {
 
 
       printf("Worker %d: [%s] %s\n", w->id, names[i], buf);
-      pool_broadcast(/*fds[i].fd,*/ names[i], buf);
+      buf[strcspn(buf, "\r\n")] = 0;
+      pool_broadcast(names[i], buf);
     }
 
   }

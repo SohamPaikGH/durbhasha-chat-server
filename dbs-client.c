@@ -45,6 +45,7 @@ void *handle_send_thread(void *arg) {
     strncat(msg, "\n", sizeof(msg) - strlen(msg) - 1);
 
     if (!strlen(msg)) continue;
+    if (!strncmp(msg, "\n", 1)) continue;
 
     int bytes = 0;
     if ((bytes = send(sockfd, msg, strlen(msg), 0)) < 0) {
@@ -63,15 +64,16 @@ void *handle_send_thread(void *arg) {
 
 void *handle_recv_thread(void *arg) {
   int sockfd = (intptr_t) arg;
-  char buf[MAXDATASIZE];
 
   while (1) {
+    char buf[MAXDATASIZE] = {0};
     int i = 0;
     char c;
     ssize_t bytes;
     while ((bytes = recv(sockfd, &c, 1, 0)) > 0) {
       if (i >= MAXDATASIZE - 1) {
         fprintf(stderr, "Response too long\n");
+        buf[i] = 0;
         break;
       }
       if (c == '\n') {
