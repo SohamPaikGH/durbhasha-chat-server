@@ -393,6 +393,7 @@ void *pool_thread(void *arg) {
         if (is_name_taken(buf)) {
           char *msg = "That name already exists!\n";
           send(fds[i].fd, msg, strlen(msg), MSG_DONTWAIT);
+          pool_client_remove(fds[i].fd);
           shutdown(fds[i].fd, SHUT_RDWR);
           close(fds[i].fd);
           free(names[i]);
