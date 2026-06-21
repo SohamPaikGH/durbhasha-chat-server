@@ -2,7 +2,7 @@
 
 Durbhash (दूरभाष) — Sanskrit for "telephone," literally "speaking from a distance."
 
-A TCP chat server and client written in C, built from raw POSIX sockets and threads. Durbhasha supports multiple concurrency models for handling client connections, implemented as a way to explore the tradeoffs between thread-per-connection, thread pooling, and I/O multiplexing.
+A TCP chat server and client written in C, built from raw POSIX sockets and threads. Durbhash supports multiple concurrency models for handling client connections, implemented as a way to explore the tradeoffs between thread-per-connection, thread pooling, and I/O multiplexing.
 
 ## Features
 
