@@ -13,7 +13,5 @@ jobs:
     name: Build using Make
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-
       - name: Install Makefile and GCC compiler
       - run: sudo apt install make gcc
